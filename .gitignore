@@ -11,3 +11,6 @@ wheels/
 
 # Secrets
 secretspec.toml
+
+# Jupyter
+.ipynb_checkpoints/

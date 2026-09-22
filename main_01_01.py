@@ -1,10 +1,13 @@
 import asyncio
+import operator
 import os
 from collections.abc import Sequence
+from typing import Annotated, TypedDict
 
 from dotenv import load_dotenv
 from langchain_community.document_loaders import AsyncHtmlLoader
 from langchain_community.vectorstores import Chroma
+from langchain_core import messages
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -106,6 +109,68 @@ llm_with_tools = llm_model.bind_tools(TOOLS)  # C
 # 4. Initialize the dependencies for the LangGraph graph
 # ----------------------------------------------------------------------------
 
+
 # -----------------------------------------------------------------------------
 # AgentState: it only contains LLM messages
 # -----------------------------------------------------------------------------
+class AgentState(TypedDict):  # A
+    messages: Annotated[Sequence[BaseMessage], operator.add]  # B
+
+
+# A Define the agent state
+# B The agent state only contains LLM messages, which are appended to the list of messages
+
+# -----------------------------------------------------------------------------
+# CustomToolNode
+# -----------------------------------------------------------------------------
+
+
+class ToolsExecutionNode:  # A
+    """Execute tools requested by the LLM in the last AIMessage."""
+
+    def __init__(self, tools: Sequence):  # B
+        self._tools_by_name = {t.name: t for t in tools}
+
+    def __call__(self, state: dict):  # C
+        messages: Sequence[BaseMessage] = state.get("messages", [])
+
+        last_msg = messages[-1]  # D
+        tool_messages: list[ToolMessage] = []  # E
+        tool_calls = getattr(last_msg, "tool_calls", [])  # F
+
+        for tool_call in tool_calls:  # G
+            tool_name = tool_call["name"]  # H
+            tool_args = tool_call["args"]  # I
+            tool = self._tools_by_name[tool_name]  # J
+            result = tool.invoke(tool_args)  # K
+            tool_messages.append(
+                ToolMessage(
+                    content=json.dumps(result),  # L
+                    name=tool_name,
+                    tool_call_id=tool_call["id"],
+                )
+            )
+        return {"messages": tool_messages}  # M
+
+
+tools_execution_node = ToolsExecutionNode(TOOLS)  # N
+
+# A Define the tools execution node
+# B Initialize the tools execution node with the tools list
+# C Define the __call__ method, which is called when the node is invoked
+# D Get the last message from the messages list
+# E Initialize the tool messages list, to gather the results of the tool calls
+# F Get the tool calls from the last message
+# G Iterate over the tool calls
+# H Get the tool name from the tool call
+# I Get the tool arguments from the tool call
+# J Get the tool from the tools list
+# K Invoke the tool with the arguments
+# L Add the tool result to the tool messages list
+# M Return the tool messages list, which contains the results of the tool calls
+# N Instantiate the tools execution node, to be used as a node in the LangGraph graph
+
+
+# ----------------------------------------------------------------------------
+# LLM node
+# ----------------------------------------------------------------------------

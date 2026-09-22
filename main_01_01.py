@@ -174,3 +174,21 @@ tools_execution_node = ToolsExecutionNode(TOOLS)  # N
 # ----------------------------------------------------------------------------
 # LLM node
 # ----------------------------------------------------------------------------
+
+
+def llm_node(state: AgentState):  # A
+    """LLM node that decides whether to call the search tool."""
+    current_messages = state["messages"]  # B
+    response_message = llm_with_tools.invoke(current_messages)  # C
+
+    return {"messages": [response_message]}  # D
+
+
+# A Define the LLM node
+# B Get the current messages from the agent state
+# C Invoke the LLM model with the current messages. The LLM will decide whether to call the search tool or return an answer.
+# D Return the response message, which contains the tool call or the answer
+
+# ----------------------------------------------------------------------------
+# 4. Build the LangGraph graph (llm_node + CustomToolNode)
+# ----------------------------------------------------------------------------

@@ -7,10 +7,12 @@ from typing import Annotated, TypedDict
 from dotenv import load_dotenv
 from langchain_community.document_loaders import AsyncHtmlLoader
 from langchain_community.vectorstores import Chroma
-from langchain_core import messages
+from langchain_core.messages import BaseMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langgraph.graph import StateGraph
+from langgraph.prebuilt import tools_condition
 
 load_dotenv()
 
@@ -145,7 +147,7 @@ class ToolsExecutionNode:  # A
             result = tool.invoke(tool_args)  # K
             tool_messages.append(
                 ToolMessage(
-                    content=json.dumps(result),  # L
+                    content=result,  # L
                     name=tool_name,
                     tool_call_id=tool_call["id"],
                 )
@@ -191,4 +193,26 @@ def llm_node(state: AgentState):  # A
 
 # ----------------------------------------------------------------------------
 # 4. Build the LangGraph graph (llm_node + CustomToolNode)
+# ----------------------------------------------------------------------------
+
+builder = StateGraph(AgentState)  # A
+builder.add_node("llm_node", llm_node)  # B
+builder.add_node("tools", tools_execution_node)  # B
+
+builder.add_conditional_edges("llm_node", tools_condition)  # C
+
+builder.add_edge("tools", "llm_node")  # D
+
+builder.set_entry_point("llm_node")  # E
+travel_info_agent = builder.compile()  # F
+
+# A Define the graph builder
+# B Add the LLM node and the tools node to the graph
+# C Add the conditional edges to the graph, to decide whether to execute the tool calls or return an answer and exit the graph
+# D Add the edge from the tools node to the LLM node
+# E Set the entry point to the LLM node
+# F Compile the graph
+
+# ----------------------------------------------------------------------------
+# 5. Simple CLI interface
 # ----------------------------------------------------------------------------

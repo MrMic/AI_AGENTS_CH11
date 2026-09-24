@@ -5,9 +5,12 @@ from collections.abc import Sequence
 from typing import Annotated, TypedDict
 
 from dotenv import load_dotenv
+
+# from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_community.document_loaders import AsyncHtmlLoader
-from langchain_community.vectorstores import Chroma
-from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_community.document_transformers import Html2TextTransformer
+from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -23,17 +26,29 @@ UK_DESTINATIONS = [
     "West_Cornwall",
 ]
 
+# Wikimedia serves a robot-policy stub instead of the page when the User-Agent is
+# generic. Passed to the loader rather than via $USER_AGENT: langchain reads that
+# env var at import time, too early to set from here.
+USER_AGENT = "ch11-manning/0.1 (mic.a.elle.chlon@gmail.com)"  # A2
+
 
 async def build_vectorstore(destinations: Sequence[str]) -> Chroma:  # B
     """Download WikiVoyage pages and create
     a Chroma vector store."""
     urls = [f"https://en.wikivoyage.org/wiki/{slug}" for slug in destinations]  # C
-    loader = AsyncHtmlLoader(urls)  # C
+    loader = AsyncHtmlLoader(urls, header_template={"User-Agent": USER_AGENT})  # C
     print("Downloading destination pages ...")  # C
     docs = await loader.aload()  # C
+    docs = Html2TextTransformer().transform_documents(docs)  # C2
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=1024, chunk_overlap=128)  # D
     chunks = splitter.split_documents(docs)  # D
+
+    if len(chunks) < 2 * len(destinations):  # D2
+        raise RuntimeError(
+            f"Only {len(chunks)} chunks from {len(destinations)} pages - "
+            "the download was probably blocked or empty."
+        )
 
     print(f"Embedding {len(chunks)} chunks ...")  # E
     vectordb_client = Chroma.from_documents(chunks, embedding=OpenAIEmbeddings())  # E
@@ -61,9 +76,12 @@ ti_vectorstore_client = get_travel_info_vectorstore()  # J
 ti_retriever = ti_vectorstore_client.as_retriever()  # K
 
 # A Destination list; you can add more destinations here
+# A2 User-Agent identifying the crawler, as Wikimedia's robot policy requires
 # B Function to build the vectorstore and return a reference to the vectorstore client
 # C Load the destination pages asynchronously from the web into a list of documents
+# C2 Strip the HTML markup, leaving only the readable text
 # D Split the documents into chunks of 1024 characters with 128 characters of overlap
+# D2 Refuse to build a vector store out of pages that came back empty or blocked
 # E Embed the chunks and store them in the vectorstore
 # F Return the vectorstore client
 # G Initialize a cache for the vectorstore client instance as None
@@ -98,7 +116,8 @@ def search_travel_info(query: str) -> str:  # B
 TOOLS = [search_travel_info]  # A
 
 llm_model = ChatOpenAI(
-    model="gpt-5-mini",  # B
+    # model="gpt-5-mini",  # B
+    model="gpt-5-nano",  # B
     use_responses_api=True,
 )  # B
 llm_with_tools = llm_model.bind_tools(TOOLS)  # C
@@ -133,7 +152,7 @@ class ToolsExecutionNode:  # A
     def __init__(self, tools: Sequence):  # B
         self._tools_by_name = {t.name: t for t in tools}
 
-    def __call__(self, state: dict):  # C
+    def __call__(self, state: AgentState):  # C
         messages: Sequence[BaseMessage] = state.get("messages", [])
 
         last_msg = messages[-1]  # D
@@ -216,3 +235,28 @@ travel_info_agent = builder.compile()  # F
 # ----------------------------------------------------------------------------
 # 5. Simple CLI interface
 # ----------------------------------------------------------------------------
+
+
+def chat_loop():  # A
+    print("UK Travel Assistant (type 'exit' to quit)")
+    while True:
+        user_input = input("You: ").strip()  # B
+        if user_input.lower() in {"exit", "quit"}:  # C
+            break
+        state: AgentState = {"messages": [HumanMessage(content=user_input)]}  # D
+        result = travel_info_agent.invoke(state)  # E
+        response_msg = result["messages"][-1]  # F
+        print(f"Assistant: {response_msg.content}\n")  # G
+
+
+# A Define the chat loop
+# B Get the user input
+# C Check if the user input is "exit" or "quit" to exit the loop
+# D Create the initial state with a HumanMessage containing the user input
+# E Invoke the graph with the initial state
+# F Get the last message from the result, which contains the final answer
+# G Print the assistant's final answer, from the content of the last message
+
+
+if __name__ == "__main__":
+    chat_loop()

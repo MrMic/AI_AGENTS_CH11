@@ -223,8 +223,9 @@ def llm_node(state: AgentState):  # A
     Only use the tools to find the information 
     you need (including town names)."""
     )  # C
-    current_messages.append(system_message)  # D
-    response_message = llm_with_tools.invoke(current_messages)  # C
+    # current_messages.append(system_message)  # D
+    # response_message = llm_with_tools.invoke(current_messages)  # C
+    response_message = llm_with_tools.invoke([system_message, *current_messages])  # C
 
     return {"messages": [response_message]}  # D
 

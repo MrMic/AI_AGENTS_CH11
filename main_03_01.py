@@ -1,18 +1,17 @@
 import asyncio
-import operator
 import os
 import random
 from collections.abc import Sequence
-from typing import Annotated, Literal, Optional, TypedDict
+from typing import Literal, Optional, TypedDict
 
 from dotenv import load_dotenv
+from langchain.agents import AgentState, create_agent
 
 # from langchain_community.vectorstores import Chroma
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import AsyncHtmlLoader
 from langchain_community.document_transformers import Html2TextTransformer
 from langchain_core.messages import (
-    BaseMessage,
     HumanMessage,
     SystemMessage,
     ToolMessage,
@@ -21,8 +20,7 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import StateGraph
-from langgraph.managed.is_last_step import RemainingSteps
-from langgraph.prebuilt import create_react_agent, tools_condition
+from langgraph.prebuilt import tools_condition
 
 load_dotenv()
 
@@ -138,7 +136,6 @@ llm_model = ChatOpenAI(
     model="gpt-5-nano",  # B
     use_responses_api=True,
 )  # B
-# llm_with_tools = llm_model.bind_tools(TOOLS)  # C
 
 # A Define the tools list (in our case, only one tool)
 # B Instantiate the LLM model with the gpt-5-mini model and the responses API
@@ -149,27 +146,16 @@ llm_model = ChatOpenAI(
 # ----------------------------------------------------------------------------
 
 
-# -----------------------------------------------------------------------------
-# AgentState: it only contains LLM messages
-# -----------------------------------------------------------------------------
-class AgentState(TypedDict):  # A
-    messages: Annotated[Sequence[BaseMessage], operator.add]  # B
-    remaining_steps: RemainingSteps
-
-
-# A Define the agent state
-# B The agent state only contains LLM messages, which are appended to the list of messages
-
-
 # ----------------------------------------------------------------------------
 # Build the travel info assistant React Agent
 # ----------------------------------------------------------------------------
 
-travel_info_agent = create_react_agent(
+# ponytail: built-in AgentState (messages appended via add_messages) replaces the
+# custom one; create_agent enforces the step limit itself, so no remaining_steps.
+travel_info_agent = create_agent(
     model=llm_model,
     tools=TOOLS,
-    state_schema=AgentState,
-    prompt="""You are a helpful assistant that can search travel information and get the weather forecast. 
+    system_prompt="""You are a helpful assistant that can search travel information and get the weather forecast.
     Only use the tools to find the information you need (including town names).""",
 )
 
@@ -187,7 +173,7 @@ def chat_loop():  # A
         state: AgentState = {"messages": [HumanMessage(content=user_input)]}  # D
         result = travel_info_agent.invoke(state)  # E
         response_msg = result["messages"][-1]  # F
-        print(f"Assistant: {response_msg.content}\n")  # G
+        print(f"Assistant: {response_msg.text}\n")  # G
 
 
 # A Define the chat loop
